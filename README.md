@@ -21,6 +21,8 @@ and you want to move func1 to mod2.py, you'd move the code manually, and then fr
 python update_imports.py --move=pkg1.mod1.func1,pkg2.mod2.func1 --verbose
 ```
 
+Relative imports must start with a `.`.
+
 This works for moving packages, modules, and symbols. It can update relative imports, although will convert them to absolute imports in some cases. It only updates imports so can't automatically fix things if you `import foo.bar` and move/rename `foo`.
 
 It may result in slightly messy imports, for example it may create a new `from` import as part of a move even if one already exists that it could have added to, so you may want to run an import prettifier after it's done, like https://github.com/miki725/importanize or https://github.com/timothycrosley/isort.

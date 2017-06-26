@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-"""Assumes all relative imports start with a period."""
+"""See README.md for details."""
 
 import argparse
 import logging
