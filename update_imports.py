@@ -4,6 +4,7 @@
 """Assumes all relative imports start with a period."""
 
 import argparse
+import logging
 import os
 import re
 import time
@@ -12,16 +13,24 @@ from importlib import import_module
 
 from redbaron import CommentNode, RedBaron
 
+log = logging.getLogger()
+
 
 def main():
     args = parse_args()
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    elif args.verbose:
+        logging.basicConfig(level=logging.INFO)
+    else:
+        logging.basicConfig(level=logging.WARNING)
     exre = None
     if args.exclude:
         exre = re.compile(args.exclude)
     paths = recurse(args.path, hidden_dirs=args.hidden_dirs, exclude=exre)
     old, new = [x.strip() for x in args.move.split(',')]
     moves = parse_moves([(old, new)]) # only 1 move at a time for now
-    update_imports(paths, moves, args)
+    update_imports(paths, moves)
 
 
 def parse_args():
@@ -29,6 +38,7 @@ def parse_args():
     parser.add_argument("--hidden-dirs", action="store_true", help="descent into hidden dirs")
     parser.add_argument("-x", "--exclude", help="exclude files and dirs matching regexp", type=str)
     parser.add_argument("-v", "--verbose", help="print more", action="store_true")
+    parser.add_argument("-d", "--debug", help="print even more", action="store_true")
     parser.add_argument("-m", "--move", help="a package/module/symbol move in the form of 'from.here,to.here'", type=str, required=True)
     parser.add_argument("path", nargs="*", default="./", help="path to run on", type=str)
     args = parser.parse_args()
@@ -50,7 +60,7 @@ def parse_moves(moves):
         else:
             newel, newl = n
         parsed.append([ModPath(old, oldel, oldl), ModPath(new, newel, newl)])
-    print "Parsed moves: %r" % parsed
+    log.debug("Parsed moves: %r", parsed)
     return parsed
 
 
@@ -85,16 +95,15 @@ def recurse(path, hidden_dirs=False, exclude=None):
     return paths
 
 
-def update_imports(paths, moves, args):
+def update_imports(paths, moves):
     for path in paths:
         t0 = time.time()
-        update_imports_file(path, moves, args)
+        update_imports_file(path, moves)
         td = time.time() - t0
-        if args.verbose:
-            print "%s ... %0.3f" % (path, td)
+        log.info("%s ... %0.3f", path, td)
 
 
-def update_imports_file(path, moves, args):
+def update_imports_file(path, moves):
     with open(path, 'r') as f:
         ast = RedBaron(f.read())
     update_imports_ast(path, ast, moves)
@@ -103,50 +112,50 @@ def update_imports_file(path, moves, args):
 
 
 def update_imports_ast(path, ast, moves):
-    print "Processing file %s" % path
+    log.debug("Processing file %s", path)
 
     # import each parent and see if it includes the child. if so add those
     # module paths to a warning list to flag (but not update) if seen.
 
     for stmt in ast.find_all('ImportNode'):
-        print "\nProcessing statement: %s" % stmt
+        log.debug("  Processing statement: %s", stmt)
 
         for imp in stmt.value:
-            print 'Processing subimport %s' % imp
+            log.debug("    Processing subimport %s", imp)
 
             absfrm = abs_mod_path(path, imp.value.dumps())
-            print "Absolute path %s" % absfrm
+            log.debug("      Absolute path %s", absfrm)
 
             # if imp.value startswith any warning paths
             #     warn
 
             for old, new in moves:
-                print "Processing move %s -> %s for 'import' updates" % (old.full, new.full)
+                log.debug("      Processing move %s -> %s for 'import' updates", old.full, new.full)
                 # if tail was changed and stmt.value == oldpath and as is None
                 if absfrm == old.full and not imp.target:
                     if len(imp.value) == 1:
                         imp.target = imp.value.dumps()
                     else:
-                        print "Warning: updating 'import %s' to 'import %s'; you'll nned to any references to %s" % (old.full, new.full, old.full)
+                        log.debug("Warning: updating 'import %s' to 'import %s'; you'll nned to any references to %s", old.full, new.full, old.full)
                 if absfrm.startswith(old.full):
                     imp.value = new.full + absfrm[len(old.full):]
-                    print "Updated subimport to %r" % imp
+                    log.debug("        Updated subimport to %r", imp)
 
     for fin in ast.find_all('FromImportNode'):
-        print "\nProcessing statement: %s" % fin
+        log.debug("  Processing statement: %s", fin)
 
         absfrm = abs_mod_path(path, fin.value.dumps())
-        print "Absolute path %s" % absfrm
+        log.debug("    Absolute path %s", absfrm)
 
         assert len(moves) == 1 # haven't fully implemented multiple moves at once
         new_fin = None
         remove_targets = []
 
         for tgt in fin.targets:
-            print 'Processing subimport from %s import %s' % (absfrm, tgt)
+            log.debug("    Processing subimport from %s import %s", absfrm, tgt)
 
             for old, new in moves:
-                print "Processing move %s -> %s for 'from' and 'from/import' updates" % (old.full, new.full)
+                log.debug("      Processing move %s -> %s for 'from' and 'from/import' updates", old.full, new.full)
                 if absfrm == old.except_last and tgt.value == old.last:
                     # eg for move a.b.c -> foo.bar, old.except_last == 'a.b' and old.last = 'c'
 
@@ -157,7 +166,7 @@ def update_imports_ast(path, ast, moves):
                         tgt.value = new.last
                         if not tgt.target:
                             tgt.target = old.last
-                        print "Updated target/rhs/import: %r" % fin
+                        log.debug("        Updated target/rhs/import: %r", fin)
                     if absfrm != new.except_last:
                         # fin.value = new.except_last # original too-simple version
                         # Move this import to a new FromImportNode because this
@@ -169,7 +178,7 @@ def update_imports_ast(path, ast, moves):
                         # I don't know if it's safe to delete while iterating over the targets so hackily mark if for deletion later
                         # tgt.value = 'this_was_moved_and_should_be_deleted'
                         remove_targets.append(tgt)
-                        print "Prepped for moving this to a new from/import node"
+                        log.debug("        Prepped for moving this to a new from/import node")
                 # if absfrm == any warning paths heads and import is tail
                 #     warn
                 # if absfrm startswith any warning paths
@@ -186,17 +195,17 @@ def update_imports_ast(path, ast, moves):
                 fin.targets.remove(t)
             if len(fin.targets) == 0:
                 fin.parent.remove(fin)
-            print "Updated value/lhs/from, resulting in a new statement: %r and %r" % (fin, new_fin)
+            log.debug("    Updated value/lhs/from, resulting in a new statement: %r and %r", fin, new_fin)
 
         # Updates that only touch lhs of from imports (from part).
         for old, new in moves:
-            print "Processing move %s -> %s for 'from'-only updates" % (old.full, new.full)
+            log.debug("    Processing move %s -> %s for 'from'-only updates", old.full, new.full)
             # TODO error on multiple matches
             if absfrm.startswith(old.full):
                 # replace_import(fin.value, new.full + absfrm[len(old.full):])
                 fin.value = new.full + absfrm[len(old.full):]
                 # TODO split from because there might be existing ones.
-                print "Updated from from/value: %s" % fin
+                log.debug("      Updated from from/value: %s", fin)
 
 
 def abs_mod_path(from_file, imp):
