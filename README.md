@@ -2,6 +2,8 @@
 
 This is a single tool for now but might grow to include more.
 
+**This is pretty early, pretty rough software. Treat it as alpha quality and carefully check any edits it makes.**
+
 
 ## Update imports
 
@@ -26,8 +28,6 @@ Relative imports must start with a `.`.
 This works for moving packages, modules, and symbols. It can update relative imports, although will convert them to absolute imports in some cases. It only updates imports so can't automatically fix things if you `import foo.bar` and move/rename `foo`.
 
 It may result in slightly messy imports, for example it may create a new `from` import as part of a move even if one already exists that it could have added to, so you may want to run an import prettifier after it's done, like https://github.com/miki725/importanize or https://github.com/timothycrosley/isort.
-
-This is pretty early, pretty rough software. Treat it as alpha quality and carefully check any edits it makes.
 
 
 ## Contributing
